@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:pPr><w:pStyle w:val="title"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Projects - PF2</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[clc
+clear all
+close all]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:t></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[%% INPUT DATA
+% Helicopter characteristics
+h_max = 7000;            % Max. altitude according to HOGE
+Vz_max = 10.9;           % Max. rate of climb
+Vz_min = -10;            % Max. rate of descend
+
+% main rotor
+Nb = 5;                  % Number of blades
+omega_m = 270*2*pi/60;   % Angular speed
+D_m = 6.5*2;             % Diameter
+R_m = D_m/2;             % Radius
+c_m = 0.6;               % Chord
+C_d0m = 0.009;           % Parasitic drag
+k_m = 1.15;              % Induced power loss factor
+
+%Environment characteristics
+rho_0 = 1.225;           % Density at sea level (ISA)
+g = 9.81;                % Gravity
+T_0 = 288.16;            % Temperature at sea level (ISA)
+R = 287;                 % Constant of air
+lambda = -6.5*10^(-3);   % Temperature gradient
+
+% Available power
+P_eng = 2558e3;      % Max. continuous power engine (W)
+eta_eng = 0.97;      % Ratio between engine power and shaft power
+perc_tail = 0.85;    % Ratio beween MR power and total power
+max_power_SL = P_eng*eta_eng*perc_tail; % Maximum MR power
+M = (8000-2100):1:8000;  % Mass of the helicopter
+
+%% Previous calculations
+[A, solidity, V_tip] = Previus_calculations(R_m, Nb, omega_m, c_m);
+h_ceiling_hov_vect = zeros(length(M),1);]]></w:t></w:r></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Hover flight</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[h = linspace(0,h_max,14000)'; % Height
+rho = rho_0.*((T_0+lambda.*h)./(T_0)).^(-(g/(R*lambda))-1); % Density
+max_power = max_power_SL*(rho/rho_0).^0.6;
+
+for ii = 1:length(M)
+    
+    %% Hover
+    T = M(ii)*g; % Thrust --> Force equilibrium
+    V_ih = sqrt(T./(2*rho*A)); %Induced velocity
+    P_ih = k_m*T.*V_ih; % Induced power
+    P_oh = 1/8*solidity*C_d0m*rho*A*V_tip^3;
+    P_meas_h = P_ih + P_oh;
+
+
+    % Hover cieling
+
+    ceiling = find(P_meas_h > max_power, 1)-1;
+
+    h_ceiling_hov = h(ceiling);
+    h_ceiling_hov_vect(ii) = h_ceiling_hov;
+end
+
+fprintf('Hover flight ceiling at MTOW: %.1f m', h_ceiling_hov)
+]]></w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="text"/><w:jc w:val="left"/></w:pPr><w:r><w:rPr><w:b/></w:rPr><w:t>Axial Flight</w:t></w:r></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p><w:pPr><w:pStyle w:val="heading"/><w:jc w:val="left"/></w:pPr><w:r><w:t>Axial flight</w:t></w:r></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[% Vector prelocation
+size_vz = 1000;
+Vi = zeros(length(h),size_vz);
+P_meas_ax = zeros(length(h),size_vz);
+climb_vz_max = zeros(length(h),1);
+Vz = linspace(0,20,size_vz).';
+
+for iii = 1:length(h)
+    
+    for i = 1:size_vz
+        Vz_ND = Vz(i)/V_ih(iii);
+        Vi_ND = -Vz_ND/2+sqrt(Vz_ND^2/4+1);
+        Vi(iii,i) = Vi_ND*V_ih(iii);
+    end
+
+    % Total power
+    P_meas_ax(iii, :) = P_oh(iii) + T .* (k_m * Vi(iii, :) + Vz.');
+
+    % Find the max climb speed
+    vz_max = find(P_meas_ax(iii, :) > max_power(iii), 1) - 1;
+    if ~isempty(vz_max) && vz_max > 0
+        climb_vz_max(iii) = Vz(vz_max);
+    else
+        climb_vz_max(iii) = NaN; % Handle cases where no valid vz_max is found
+    end
+end
+
+
+]]></w:t></w:r></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[%% PLOTS for HOVER FLIGHT
+colors = get(gca, 'ColorOrder');
+
+% Power vs altitude
+figure
+hold on
+plot(h, P_meas_h * 1e-3, 'LineWidth', 1.3);
+plot(h, P_ih * 1e-3, 'LineWidth', 1.3); % Swapped x and y axes
+plot(h, P_oh * 1e-3, 'LineWidth', 1.3);
+hold off;
+title('Power vs altitude in hover', 'FontWeight', 'bold')
+xlabel('Altitude (m)', 'Interpreter', 'latex')
+ylabel('Power (kW)', 'Interpreter', 'latex')
+legend({'Total shaft power','Induced power', 'Profile power'}, 'Interpreter', 'latex', 'Location', 'best')
+grid on
+
+% Power vs altitude max altitude
+figure
+hold on
+plot(h, P_meas_h * 1e-3, 'LineWidth', 1.3); % Swapped x and y axes
+plot(h, P_ih * 1e-3, 'LineWidth', 1.3); % Swapped x and y axes
+plot(h, P_oh * 1e-3, 'LineWidth', 1.3);
+plot(h, max_power * 1e-3, '--', 'LineWidth', 1.3, 'Color', colors(5, :)); % Line for maximum available power
+xline(h_ceiling_hov, '--', sprintf('%.0f m', h_ceiling_hov), 'Interpreter', 'latex', 'LineWidth', 1.3, 'Color', colors(6, :)); % Vertical line for ceiling
+hold off;
+title('Power vs altitude in hover', 'FontWeight', 'bold')
+xlabel('Altitude (m)', 'Interpreter', 'latex')
+ylabel('Power (kW)', 'Interpreter', 'latex')
+legend({'Required total shaft power','Induced power','Profile power', 'Available power', 'Hover ceiling'}, 'Interpreter', 'latex', 'Location', 'southwest')
+grid on
+
+% Hover ceiling vs mass
+figure
+plot(h_ceiling_hov_vect, M, 'LineWidth', 1.3, 'Color', colors(5, :));
+title('Hover ceiling vs mass', 'FontWeight', 'bold')
+ylabel('Mass (kg)', 'Interpreter', 'latex')
+xlabel('Hover ceiling altitude (m)', 'Interpreter', 'latex')
+grid on
+
+%% PLOTS for AXIAL FLIGHT
+
+% Axial power at SL
+figure
+plot(Vz, P_meas_ax(1,:)*1e-3, 'LineWidth', 1.3);
+hold on
+plot(Vz, T.*(k_m*Vi(1,:))*1e-3, 'LineWidth', 1.3);
+plot(Vz, T.*Vz*1e-3, 'LineWidth', 1.3);
+
+% Get the default color order
+% Line for maximum available power
+yline(max_power(1)*1e-3, '--', sprintf('%.0f kW', max_power(1)*1e-3), ...
+    'Interpreter', 'latex', 'LineWidth', 1.3, 'LabelHorizontalAlignment', 'center', 'Color', colors(5, :));
+% Line for maximum climb speed
+xline(climb_vz_max(1), '--', sprintf('%.0f m/s', climb_vz_max(1)), ...
+    'Interpreter', 'latex', 'LineWidth', 1.3, 'LabelVerticalAlignment', 'bottom', 'Color', colors(6, :));
+
+title('Power vs. climb speed at SL', 'FontWeight', 'bold')
+xlabel('Axial velocity, $v_z$ ($m/s$)', 'Interpreter', 'latex')
+ylabel('Power (kW)', 'Interpreter', 'latex')
+legend({'Total shaft power','Induced power', 'Climb power','Available power', 'Max. climb speed'}, 'Interpreter', 'latex', 'Location', 'northwest')
+grid on
+hold off
+
+% Climb speed vs altitude
+figure
+plot(h, climb_vz_max, 'LineWidth', 1.3, 'Color', colors(6, :));
+hold on
+xline(h_ceiling_hov, '--', sprintf('%.0f m', h_ceiling_hov), 'Interpreter', 'latex', 'LineWidth', 1.3, 'Color', colors(3, :),'LabelHorizontalAlignment','left'); % Vertical line for ceiling
+hold off
+title('Maximum climb speed vs altitude', 'FontWeight', 'bold')
+ylabel('Axial velocity, $v_z$ ($m/s$)', 'Interpreter', 'latex')
+xlabel('Altitude (m)', 'Interpreter', 'latex')
+legend({'Maximum climb speed','Hover ceiling'}, 'Interpreter', 'latex', 'Location', 'northwest')
+grid on
+]]></w:t></w:r></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[% %% PLOTS for HOVER FLIGHT
+% colors = get(gca, 'ColorOrder');
+% % Power vs altitude
+% figure
+% hold on
+% plot(h, P_meas_h * 1e-3, 'LineWidth', 1.3);
+% plot(h, P_ih * 1e-3, 'LineWidth', 1.3); % Swapped x and y axes
+% plot(h, P_oh * 1e-3, 'LineWidth', 1.3);
+% hold off;
+% title('Power vs altitude in hover', 'Interpreter', 'latex')
+% xlabel('Altitude (m)', 'Interpreter', 'latex')
+% ylabel('Power (kW)', 'Interpreter', 'latex')
+% legend({'Total shaft power','Induced power', 'Profile power'}, 'Interpreter', 'latex', 'Location', 'best')
+% grid on
+% 
+% % Power vs altitude max altitude
+% figure
+% hold on
+% plot(h, P_meas_h * 1e-3, 'LineWidth', 1.3); % Swapped x and y axes
+% xline(h_ceiling_hov, '--', sprintf('%.1f m', h_ceiling_hov), 'Interpreter', 'latex', 'LineWidth', 1.3, 'Color', colors(3, :)); % Vertical line for ceiling
+% plot(h, max_power * 1e-3, 'LineWidth', 1.3); % Line for maximum available power
+% hold off;
+% 
+% title('Power vs altitude in hover', 'Interpreter', 'latex')
+% xlabel('Altitude (m)', 'Interpreter', 'latex')
+% ylabel('Power (kW)', 'Interpreter', 'latex')
+% legend({'Required shaft power', 'Hover Ceiling', 'Available power'}, 'Interpreter', 'latex', 'Location', 'southwest')
+% grid on
+% 
+% 
+% % Hover ceiling vs mass
+% figure
+% plot( h_ceiling_hov_vect, M, 'LineWidth', 1.3, 'Color', colors(5, :));
+% title('Hover ceiling vs mass', 'Interpreter', 'latex')
+% ylabel('Mass (kg)', 'Interpreter', 'latex')
+% xlabel('Hover ceiling altitude (m)', 'Interpreter', 'latex')
+% grid on
+% ]]></w:t></w:r></w:p><w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p><w:pPr><w:pStyle w:val="code"/></w:pPr><w:r><w:t><![CDATA[% %% PLOTS for AXIAL FLIGHT
+% 
+% 
+% % Axial power at SL
+% figure
+% plot(Vz, P_meas_ax(1,:)*1e-3, 'LineWidth', 1.3);
+% hold on
+% plot(Vz, T.*(k_m*Vi(1,:))*1e-3, 'LineWidth', 1.3);
+% plot(Vz, T.*Vz*1e-3, 'LineWidth', 1.3);
+% 
+% % Get the default color order
+% % Line for maximum available power
+% yline(max_power(1)*1e-3, '--', sprintf('%.1f kW', max_power(1)*1e-3), ...
+%     'Interpreter', 'latex', 'LineWidth', 1.3, 'LabelHorizontalAlignment', 'center', 'Color', colors(5, :));
+% % Line for maximum climb speed
+% xline(climb_vz_max(1), '--', sprintf('%.1f m/s', climb_vz_max(1)), ...
+%     'Interpreter', 'latex', 'LineWidth', 1.3, 'LabelVerticalAlignment', 'bottom', 'Color', colors(6, :));
+% 
+% title('Power vs. climb speed at SL ', 'Interpreter', 'latex')
+% xlabel('Axial velocity, $v_z$ ($m/s$)', 'Interpreter', 'latex')
+% ylabel('Power (kW)', 'Interpreter', 'latex')
+% legend({'Total shaft power','Induced power', 'Climb power','Available power', 'Max. climb speed'}, 'Interpreter', 'latex', 'Location', 'northwest')
+% grid on
+% hold off
+% 
+% 
+% % Climb speed vs altitude
+% figure
+% plot(h, climb_vz_max, 'LineWidth', 1.3, 'Color', colors(6, :));
+% hold on
+% xline(h_ceiling_hov, '--', sprintf('%.1f m', h_ceiling_hov), 'Interpreter', 'latex', 'LineWidth', 1.3, 'Color', colors(3, :),'LabelHorizontalAlignment','left'); % Vertical line for ceiling
+% hold off
+% title('Maximum climb speed vs altitude', 'Interpreter', 'latex')
+% ylabel('Velocity (m/s)', 'Interpreter', 'latex')
+% xlabel('Altitude (m)', 'Interpreter', 'latex')
+% legend({'Maximum climb speed','Hover ceiling'}, 'Interpreter', 'latex', 'Location', 'northwest')
+% grid on
+]]></w:t></w:r></w:p></w:body></w:document>
